@@ -27,11 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install kubectl
+      - name: Install kubectl and jq
         run: |
           curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
+          sudo apt-get update && sudo apt-get install -y jq
 
       - name: Install Helm
         run: |
@@ -57,7 +58,7 @@ jobs:
       - name: Test deployment
         run: |
           for i in {1..30}; do
-            if kubectl get pods -n ${{ secrets.APP_NAME }}-test -l app.kubernetes.io/component=nextcloud | grep -q "Running"; then
+            if kubectl get pods -n ${{ secrets.APP_NAME }}-test -l app.kubernetes.io/component=nextcloud -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' | grep -q "True"; then
               break
             fi
             sleep 5
@@ -79,11 +80,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install kubectl
+      - name: Install kubectl and jq
         run: |
           curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
+          sudo apt-get update && sudo apt-get install -y jq
 
       - name: Configure kubeconfig
         run: |
@@ -104,12 +106,12 @@ jobs:
       - name: Test blue
         run: |
           for i in {1..30}; do
-            if kubectl get pods -n ${{ secrets.BLUE_NAMESPACE }} -l app.kubernetes.io/component=nextcloud | grep -q "Running"; then
+            if kubectl get pods -n ${{ secrets.BLUE_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' | grep -q "True"; then
               break
             fi
             sleep 5
           done
-          
+
           POD_NAME=$(kubectl get pods -n ${{ secrets.BLUE_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath="{.items[0].metadata.name}")
           kubectl exec -n ${{ secrets.BLUE_NAMESPACE }} $POD_NAME -- curl -s http://localhost/status.php | jq -e '.installed' | grep -q true
 
@@ -120,11 +122,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install kubectl
+      - name: Install kubectl and jq
         run: |
           curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
+          sudo apt-get update && sudo apt-get install -y jq
 
       - name: Configure kubeconfig
         run: |
@@ -145,12 +148,12 @@ jobs:
       - name: Test green
         run: |
           for i in {1..30}; do
-            if kubectl get pods -n ${{ secrets.GREEN_NAMESPACE }} -l app.kubernetes.io/component=nextcloud | grep -q "Running"; then
+            if kubectl get pods -n ${{ secrets.GREEN_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' | grep -q "True"; then
               break
             fi
             sleep 5
           done
-          
+
           POD_NAME=$(kubectl get pods -n ${{ secrets.GREEN_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath="{.items[0].metadata.name}")
           kubectl exec -n ${{ secrets.GREEN_NAMESPACE }} $POD_NAME -- curl -s http://localhost/status.php | jq -e '.installed' | grep -q true
 
@@ -176,7 +179,8 @@ jobs:
       - name: Switch traffic
         run: |
           CURRENT_COLOR=$(kubectl get ingress -n ${{ secrets.PRODUCTION_NAMESPACE }} ${{ secrets.APP_NAME }} -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/blue-green-deploy}' || echo "blue")
-          
+          OLD_COLOR=$CURRENT_COLOR
+
           if [ "$CURRENT_COLOR" = "blue" ]; then
             NEW_COLOR="green"
             NEW_NAMESPACE=${{ secrets.GREEN_NAMESPACE }}
@@ -186,9 +190,9 @@ jobs:
             NEW_NAMESPACE=${{ secrets.BLUE_NAMESPACE }}
             OLD_NAMESPACE=${{ secrets.GREEN_NAMESPACE }}
           fi
-          
+
           echo "Activating $NEW_COLOR deployment from $NEW_NAMESPACE"
-          
+
           helm upgrade ${{ secrets.APP_NAME }} . \
             --namespace ${{ secrets.PRODUCTION_NAMESPACE }} \
             --set global.deployment.active=$NEW_COLOR \
@@ -197,7 +201,7 @@ jobs:
             --set ingress.enabled=true \
             --set ingress.hosts[0].host="${{ secrets.DOMAIN }}" \
             --reuse-values
-          
+
           echo "Removing old $OLD_NAMESPACE deployment"
           kubectl delete namespace $OLD_NAMESPACE || true
 
