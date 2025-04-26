@@ -6,7 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   annotations:
     cert-manager.io/cluster-issuer: {{ .Values.certManager.issuerName | quote }}
-    nginx.ingress.kubernetes.io/blue-green-deploy: "{{ .Values.deployment.color | default "blue" }}"
+    nginx.ingress.kubernetes.io/blue-green-deploy: "{{ .Values.global.deployment.active }}"
 spec:
   rules:
     - host: {{ .Values.nextcloud.trustedDomain }}
