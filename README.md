@@ -1,41 +1,34 @@
 README.md
-## Installation Secrets
+Создайте секреты (согласно README.md):
 
-### 1. Creation Secrets
-Generate initial secrets for PostgreSQL and Nextcloud:
+bash
+# PostgreSQL
+kubectl create secret generic postgres-creds \
+  --namespace nextcloud \
+  --dry-run=client \
+  --from-literal=db=nextclouddb \
+  --from-literal=user=nextclouduser \
+  --from-literal=password=YOUR_POSTGRES_PASSWORD \
+  -o yaml > postgres-secret.yaml
 
-# For PostgreSQL
-kubectl create secret shared postgres-creds \
---namespace nextcloud \
---dry-run=client \
---from-literal=db=nextclouddb \
---from-literal=user=nextclouduser \
---from-literal=password=YOUR_POSTGRES_PASSWORD \
--o yaml > postgres-secret.yaml
+# Nextcloud Admin
+kubectl create secret generic nextcloud-admin \
+  --namespace nextcloud \
+  --dry-run=client \
+  --from-literal=user=YOUR_ADMIN_LOGIN \
+  --from-literal=password=YOUR_ADMIN_PASSWORD \
+  -o yaml > nextcloud-secret.yaml
+Запечатайте секреты:
 
-# For Nextcloud admin
-kubectl create secret shared nextcloud-admin \
---namespace nextcloud \
---dry-run=client \
---from-literal=user=YOUR_ADMIN_LOGIN \
---from-literal=password=YOUR_ADMIN_PASSWORD \
--o yaml > nextcloud-secret.yaml
-2. Encrypt Secrets
-Encrypt Secrets with kubeseal:
-
+bash
 kubeseal --format yaml < postgres-secret.yaml > sealed-postgres.yaml
 kubeseal --format yaml < nextcloud-secret.yaml > sealed-nextcloud.yaml
-3. Delete Original Secrets
-Do not commit unencrypted files to Git! Make sure they are added to .gitignore:
+Установите Helm-чарт:
 
-echo "*-secret.yaml" >> .gitignore
-rm postgres-secret.yaml nextcloud-secret.yaml
-4. Installing Helm Chart
-When installing, use encrypted values:
-
+bash
 helm install nextcloud . \
-
   --namespace nextcloud \
+  --create-namespace \
   --set nextcloud.trustedDomain=your-domain.com \
   --set postgres.image.tag=16 \
   --set postgres.storageSize=10Gi \
