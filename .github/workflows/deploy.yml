@@ -32,6 +32,11 @@ jobs:
           curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
           chmod +x kubectl
           mv kubectl /usr/local/bin/
+
+          # Импортируем отсутствующий GPG ключ для репозитория GitLab Runner
+          curl https://packages.gitlab.com/gpg.key | apt-key add -
+
+          # Обновляем пакеты и устанавливаем jq
           apt-get update && apt-get install -y jq
 
       - name: Install Helm
@@ -85,6 +90,11 @@ jobs:
           curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
           chmod +x kubectl
           mv kubectl /usr/local/bin/
+
+          # Импортируем отсутствующий GPG ключ для репозитория GitLab Runner
+          curl https://packages.gitlab.com/gpg.key | apt-key add -
+
+          # Обновляем пакеты и устанавливаем jq
           apt-get update && apt-get install -y jq
 
       - name: Configure kubeconfig
@@ -127,6 +137,11 @@ jobs:
           curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
           chmod +x kubectl
           mv kubectl /usr/local/bin/
+
+          # Импортируем отсутствующий GPG ключ для репозитория GitLab Runner
+          curl https://packages.gitlab.com/gpg.key | apt-key add -
+
+          # Обновляем пакеты и устанавливаем jq
           apt-get update && apt-get install -y jq
 
       - name: Configure kubeconfig
@@ -168,7 +183,7 @@ jobs:
         run: |
           curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
           chmod +x kubectl
-          mv kubectl /usr/local/bin/
+          sudo mv kubectl /usr/local/bin/
 
       - name: Configure kubeconfig
         run: |
@@ -203,27 +218,4 @@ jobs:
             --reuse-values
 
           echo "Removing old $OLD_NAMESPACE deployment"
-          kubectl delete namespace $OLD_NAMESPACE || true
-
-  cleanup:
-    needs: switch
-    if: failure()
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          mv kubectl /usr/local/bin/
-
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
-          kubectl config use-context ${{ secrets.KUBE_CONTEXT }}
-
-      - name: Cleanup
-        run: |
-          kubectl delete namespace ${{ secrets.BLUE_NAMESPACE }} ${{ secrets.GREEN_NAMESPACE }} || true
+          kubectl delete namespace $
