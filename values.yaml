@@ -1,0 +1,155 @@
+# Global
+global:
+  timezone: "Europe/Kaliningrad"
+  deployment:
+    strategy: blue-green
+    active: blue
+    previous: green
+
+# Cert Manager
+certManager:
+  enabled: true
+  issuerName: "letsencrypt-staging"
+  server: "https://acme-staging-v02.api.letsencrypt.org/directory"
+  email: "kuchmar.max@gmail.com" 
+  privateKeySecret: "letsencrypt-staging"
+
+# Ingress
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/blue-green-deploy: "{{ .Values.global.deployment.active }}"
+    cert-manager.io/cluster-issuer: "{{ .Values.certManager.issuerName }}"
+  hosts:
+    - host: "nextcloud.example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+
+# Blue/Green Configuration
+environments:
+  blue:
+    enabled: true
+    replicaCount: 1
+    namespace: "nextcloud-blue"
+    ingress:
+      enabled: true
+      host: "nextcloud-blue.example.com"
+  green:
+    enabled: false
+    replicaCount: 1
+    namespace: "nextcloud-green"
+    ingress:
+      enabled: true
+      host: "nextcloud-green.example.com"
+
+# Secrets
+secrets:
+  postgres:
+    db: "nextcloud"
+    user: "nextcloud"
+    password: "{{ randAlphaNum 16 }}"
+  nextcloud:
+    adminUser: "admin"
+    adminPassword: "{{ randAlphaNum 16 }}"
+  redis:
+    password: "{{ randAlphaNum 16 }}"
+
+# Redis
+redis:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: redis
+    tag: "7.2-alpine"
+  auth:
+    enabled: true
+    password: "{{ .Values.secrets.redis.password }}"
+  persistence:
+    enabled: true
+    storageClass: "local-path"
+    size: "1Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+  env:
+    TZ: "{{ .Values.global.timezone }}"
+
+# PostgreSQL  
+postgres:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: postgres
+    tag: "15-alpine"
+  auth:
+    postgresPassword: "{{ .Values.secrets.postgres.password }}"
+    database: "{{ .Values.secrets.postgres.db }}"
+    username: "{{ .Values.secrets.postgres.user }}"
+  persistence:
+    enabled: true
+    storageClass: "local-path"
+    size: "5Gi"
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+  env:
+    TZ: "{{ .Values.global.timezone }}"
+    POSTGRES_DB: "{{ .Values.secrets.postgres.db }}"
+    POSTGRES_USER: "{{ .Values.secrets.postgres.user }}"
+    POSTGRES_PASSWORD: "{{ .Values.secrets.postgres.password }}"
+
+# Nextcloud
+nextcloud:
+  image:
+    repository: nextcloud
+    tag: "25.0.3-apache"
+  persistence:
+    enabled: true
+    storageClass: "local-path"
+    size: "10Gi"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "1000m"
+      memory: "4Gi"
+  php:
+    memoryLimit: "4G"
+    uploadLimit: "1G"
+  env:
+    TZ: "{{ .Values.global.timezone }}"
+    OVERWRITEPROTOCOL: "https"
+    OVERWRITEHOST: "nextcloud.example.com"
+    POSTGRES_HOST: "{{ .Release.Name }}-postgres"
+    POSTGRES_DB: "{{ .Values.secrets.postgres.db }}"
+    POSTGRES_USER: "{{ .Values.secrets.postgres.user }}"
+    POSTGRES_PASSWORD: "{{ .Values.secrets.postgres.password }}"
+    REDIS_HOST: "{{ .Release.Name }}-redis"
+    REDIS_HOST_PASSWORD: "{{ .Values.secrets.redis.password }}"
+    NEXTCLOUD_ADMIN_USER: "{{ .Values.secrets.nextcloud.adminUser }}"
+    NEXTCLOUD_ADMIN_PASSWORD: "{{ .Values.secrets.nextcloud.adminPassword }}"
+
+# Monitoring
+monitoring:
+  enabled: false
+  prometheus:
+    enabled: false
+  grafana:
+    enabled: false
+
+# Backup
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  retention: 7
