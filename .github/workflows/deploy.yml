@@ -1,51 +1,45 @@
-name: Deploy Nextcloud
+name: Nextcloud Blue/Green Deployment
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+env:
+  HELM_VERSION: "v3.14.0"
+  KUBECTL_VERSION: "v1.29.2"
 
 jobs:
-  lint:
+  lint-and-test:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install Helm
+      - name: Setup Helm
         run: |
           curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
           chmod 700 get_helm.sh
-          ./get_helm.sh --version ${{ secrets.HELM_VERSION }}
+          ./get_helm.sh --version ${{ env.HELM_VERSION }}
 
-      - name: Lint chart
-        run: helm lint .
+      - name: Lint Helm chart
+        run: helm lint . --strict
 
-  deploy:
-    needs: lint
+  deploy-to-test:
+    needs: lint-and-test
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install kubectl and jq
+      - name: Setup Kubernetes tools
         run: |
-          curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          mv kubectl /usr/local/bin/
+          curl -LO "https://dl.k8s.io/release/${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          helm plugin install https://github.com/jkroepke/helm-secrets
 
-          # Импортируем отсутствующий GPG ключ для репозитория GitLab Runner
-          curl https://packages.gitlab.com/gpg.key | apt-key add -
-
-          # Обновляем пакеты и устанавливаем jq
-          apt-get update && apt-get install -y jq
-
-      - name: Install Helm
-        run: |
-          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-          chmod 700 get_helm.sh
-          ./get_helm.sh --version ${{ secrets.HELM_VERSION }}
-
-      - name: Configure kubeconfig
+      - name: Configure Kubecontext
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
@@ -53,169 +47,88 @@ jobs:
 
       - name: Deploy test environment
         run: |
-          helm upgrade --install ${{ secrets.APP_NAME }}-test . \
+          helm secrets upgrade --install ${{ secrets.APP_NAME }}-test . \
             --namespace ${{ secrets.APP_NAME }}-test \
             --create-namespace \
-            --set global.deployment.active=blue \
-            --set ingress.enabled=true \
-            --set ingress.hosts[0].host="test.${{ secrets.DOMAIN }}"
+            --set global.deployment.active=test \
+            --values sealed-secrets.yaml
 
-      - name: Test deployment
+      - name: Run smoke tests
         run: |
-          for i in {1..30}; do
-            if kubectl get pods -n ${{ secrets.APP_NAME }}-test -l app.kubernetes.io/component=nextcloud -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' | grep -q "True"; then
-              break
-            fi
-            sleep 5
-          done
-          
-          POD_NAME=$(kubectl get pods -n ${{ secrets.APP_NAME }}-test -l app.kubernetes.io/component=nextcloud -o jsonpath="{.items[0].metadata.name}")
-          kubectl exec -n ${{ secrets.APP_NAME }}-test $POD_NAME -- curl -s http://localhost/status.php | jq -e '.installed' | grep -q true
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=nextcloud \
+            -n ${{ secrets.APP_NAME }}-test --timeout=300s
+          # Add your custom test commands here
 
-      - name: Cleanup test
-        if: always()
-        run: |
-          helm uninstall ${{ secrets.APP_NAME }}-test -n ${{ secrets.APP_NAME }}-test || true
-          kubectl delete namespace ${{ secrets.APP_NAME }}-test || true
-
-  deploy-blue:
-    needs: deploy
-    runs-on: self-hosted
+  blue-green-deployment:
+    needs: deploy-to-test
     if: github.ref == 'refs/heads/main'
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        color: [blue, green]
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install kubectl and jq
+      - name: Setup Kubernetes tools
         run: |
-          curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          mv kubectl /usr/local/bin/
+          curl -LO "https://dl.k8s.io/release/${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
+          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          helm plugin install https://github.com/jkroepke/helm-secrets
 
-          # Импортируем отсутствующий GPG ключ для репозитория GitLab Runner
-          curl https://packages.gitlab.com/gpg.key | apt-key add -
-
-          # Обновляем пакеты и устанавливаем jq
-          apt-get update && apt-get install -y jq
-
-      - name: Configure kubeconfig
+      - name: Configure Kubecontext
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
           kubectl config use-context ${{ secrets.KUBE_CONTEXT }}
 
-      - name: Deploy blue
+      - name: Deploy ${{ matrix.color }} environment
         run: |
-          helm upgrade --install ${{ secrets.APP_NAME }}-blue . \
-            --namespace ${{ secrets.BLUE_NAMESPACE }} \
+          helm secrets upgrade --install ${{ secrets.APP_NAME }}-${{ matrix.color }} . \
+            --namespace ${{ secrets.APP_NAME }}-${{ matrix.color }} \
             --create-namespace \
-            --set global.deployment.active=blue \
-            --set environments.blue.enabled=true \
-            --set environments.green.enabled=false \
-            --set ingress.enabled=false
+            --set global.deployment.active=${{ matrix.color }} \
+            --values sealed-secrets.yaml
 
-      - name: Test blue
+      - name: Validate ${{ matrix.color }} deployment
         run: |
-          for i in {1..30}; do
-            if kubectl get pods -n ${{ secrets.BLUE_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' | grep -q "True"; then
-              break
-            fi
-            sleep 5
-          done
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=nextcloud \
+            -n ${{ secrets.APP_NAME }}-${{ matrix.color }} --timeout=300s
 
-          POD_NAME=$(kubectl get pods -n ${{ secrets.BLUE_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath="{.items[0].metadata.name}")
-          kubectl exec -n ${{ secrets.BLUE_NAMESPACE }} $POD_NAME -- curl -s http://localhost/status.php | jq -e '.installed' | grep -q true
-
-  deploy-green:
-    needs: deploy-blue
+  switch-traffic:
+    needs: blue-green-deployment
     runs-on: self-hosted
-    if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install kubectl and jq
-        run: |
-          curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          mv kubectl /usr/local/bin/
-
-          # Импортируем отсутствующий GPG ключ для репозитория GitLab Runner
-          curl https://packages.gitlab.com/gpg.key | apt-key add -
-
-          # Обновляем пакеты и устанавливаем jq
-          apt-get update && apt-get install -y jq
-
-      - name: Configure kubeconfig
+      - name: Configure Kubecontext
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
           kubectl config use-context ${{ secrets.KUBE_CONTEXT }}
 
-      - name: Deploy green
+      - name: Determine current color
+        id: current-color
         run: |
-          helm upgrade --install ${{ secrets.APP_NAME }}-green . \
-            --namespace ${{ secrets.GREEN_NAMESPACE }} \
-            --create-namespace \
-            --set global.deployment.active=green \
-            --set environments.blue.enabled=false \
-            --set environments.green.enabled=true \
-            --set ingress.enabled=false
-
-      - name: Test green
-        run: |
-          for i in {1..30}; do
-            if kubectl get pods -n ${{ secrets.GREEN_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' | grep -q "True"; then
-              break
-            fi
-            sleep 5
-          done
-
-          POD_NAME=$(kubectl get pods -n ${{ secrets.GREEN_NAMESPACE }} -l app.kubernetes.io/component=nextcloud -o jsonpath="{.items[0].metadata.name}")
-          kubectl exec -n ${{ secrets.GREEN_NAMESPACE }} $POD_NAME -- curl -s http://localhost/status.php | jq -e '.installed' | grep -q true
-
-  switch:
-    needs: [deploy-blue, deploy-green]
-    runs-on: self-hosted
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/${{ secrets.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
-          kubectl config use-context ${{ secrets.KUBE_CONTEXT }}
+          CURRENT=$(kubectl get ingress -n production nextcloud-ingress \
+            -o jsonpath='{.metadata.annotations.deployment\.color}' || echo "blue")
+          echo "current_color=$CURRENT" >> $GITHUB_OUTPUT
 
       - name: Switch traffic
         run: |
-          CURRENT_COLOR=$(kubectl get ingress -n ${{ secrets.PRODUCTION_NAMESPACE }} ${{ secrets.APP_NAME }} -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/blue-green-deploy}' || echo "blue")
-          OLD_COLOR=$CURRENT_COLOR
+          NEW_COLOR=${{ steps.current-color.outputs.current_color == 'blue' && 'green' || 'blue' }}
+          
+          # Update ingress annotation
+          kubectl annotate ingress -n production nextcloud-ingress \
+            deployment.color=$NEW_COLOR --overwrite
 
-          if [ "$CURRENT_COLOR" = "blue" ]; then
-            NEW_COLOR="green"
-            NEW_NAMESPACE=${{ secrets.GREEN_NAMESPACE }}
-            OLD_NAMESPACE=${{ secrets.BLUE_NAMESPACE }}
-          else
-            NEW_COLOR="blue"
-            NEW_NAMESPACE=${{ secrets.BLUE_NAMESPACE }}
-            OLD_NAMESPACE=${{ secrets.GREEN_NAMESPACE }}
-          fi
-
-          echo "Activating $NEW_COLOR deployment from $NEW_NAMESPACE"
-
+          # Promote deployment
           helm upgrade ${{ secrets.APP_NAME }} . \
-            --namespace ${{ secrets.PRODUCTION_NAMESPACE }} \
+            --namespace production \
             --set global.deployment.active=$NEW_COLOR \
-            --set environments.$NEW_COLOR.enabled=true \
-            --set environments.$OLD_COLOR.enabled=false \
-            --set ingress.enabled=true \
-            --set ingress.hosts[0].host="${{ secrets.DOMAIN }}" \
             --reuse-values
 
-          echo "Removing old $OLD_NAMESPACE deployment"
-          kubectl delete namespace $
+          # Cleanup old deployment
+          OLD_COLOR=${{ steps.current-color.outputs.current_color }}
+          kubectl delete namespace ${{ secrets.APP_NAME }}-$OLD_COLOR || true
