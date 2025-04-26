@@ -21,19 +21,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure kubectl, jq, and gnupg are installed
+      - name: Ensure kubectl, jq, and gnupg are installed (optional)
         run: |
           if ! command -v kubectl &> /dev/null; then
             echo "kubectl is not installed, please install it";
-            exit 1;
           fi
           if ! command -v jq &> /dev/null; then
             echo "jq is not installed, please install it";
-            exit 1;
           fi
           if ! command -v gpg &> /dev/null; then
-            echo "gnupg is not installed, please install it";
-            exit 1;
+            echo "gnupg is not installed, skipping its installation";
           fi
 
       - name: Configure kubeconfig
@@ -66,5 +63,7 @@ jobs:
       - name: Cleanup test
         if: always()
         run: |
+          helm uninstall ${{ secrets.APP_NAME }}-test -n ${{ secrets.APP_NAME }}-test || true
+          kubectl delete namespace ${{ secrets.APP_NAME }}-test || true
           helm uninstall ${{ secrets.APP_NAME }}-test -n ${{ secrets.APP_NAME }}-test || true
           kubectl delete namespace ${{ secrets.APP_NAME }}-test || true
