@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
       
@@ -22,7 +22,7 @@ jobs:
 
   deploy:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
       
@@ -71,7 +71,7 @@ jobs:
           
   deploy-blue:
     needs: deploy
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v3
@@ -116,7 +116,7 @@ jobs:
           
   deploy-green:
     needs: deploy-blue
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v3
@@ -161,7 +161,7 @@ jobs:
           
   switch:
     needs: [deploy-blue, deploy-green]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v3
@@ -213,7 +213,7 @@ jobs:
   cleanup:
     needs: switch
     if: failure()
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
       
