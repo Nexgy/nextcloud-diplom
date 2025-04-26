@@ -36,7 +36,7 @@ jobs:
       - name: Setup Kubernetes tools
         run: |
           curl -LO "https://dl.k8s.io/release/${{ env.KUBECTL_VERSION }}/bin/linux/amd64/kubectl"
-          chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+          chmod +x kubectl && mv kubectl /usr/local/bin/
           helm plugin install https://github.com/jkroepke/helm-secrets
 
       - name: Configure Kubecontext
