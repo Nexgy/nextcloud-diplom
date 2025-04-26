@@ -1,0 +1,27 @@
+{{- if .Values.nextcloud.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-nextcloud-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.nextcloud.persistence.storageClass | default "local-path" }}
+  resources:
+    requests:
+      storage: {{ .Values.nextcloud.persistence.size | default "5Gi" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-nextcloud-pvc-nfs
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.nextcloud.persistence.storageClass | default "local-path" }}
+  resources:
+    requests:
+      storage: {{ .Values.nextcloud.persistence.nfsSize | default "40Gi" }}
+{{- end }}

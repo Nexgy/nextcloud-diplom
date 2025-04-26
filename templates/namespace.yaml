@@ -1,0 +1,19 @@
+{{- if .Values.environments.blue.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.environments.blue.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-blue
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+{{- end }}
+{{- if .Values.environments.green.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.environments.green.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-green
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

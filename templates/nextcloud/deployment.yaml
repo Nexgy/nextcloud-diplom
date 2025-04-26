@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-nextcloud
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nextcloud.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.nextcloud.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "nextcloud.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nextcloud.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: nextcloud
+          image: "{{ .Values.nextcloud.image.repository }}:{{ .Values.nextcloud.image.tag }}"
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          env:
+            - name: REDIS_HOST
+              value: {{ .Release.Name }}-redis
+            - name: POSTGRES_HOST
+              value: {{ .Release.Name }}-postgresql
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: POSTGRES_PASSWORD
+            - name: NEXTCLOUD_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: NEXTCLOUD_ADMIN_USER
+            - name: NEXTCLOUD_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: NEXTCLOUD_ADMIN_PASSWORD
+            - name: NEXTCLOUD_TRUSTED_DOMAINS
+              value: {{ .Values.nextcloud.trustedDomain | quote }}
+            - name: NEXTCLOUD_DATA_DIR
+              value: /mnt/data
+            - name: APACHE_DISABLE_REWRITE_IP
+              value: "1"
+            - name: OVERWRITEHOST
+              value: {{ .Values.nextcloud.trustedDomain | quote }}
+            - name: OVERWRITEPROTOCOL
+              value: https
+            - name: OVERWRITECLIURL
+              value: {{ printf "https://%s" .Values.nextcloud.trustedDomain | quote }}
+            - name: OVERWRITEWEBROOT
+              value: "/"
+            - name: PHP_MEMORY_LIMIT
+              value: {{ .Values.nextcloud.php.memoryLimit | quote }}
+            - name: PHP_UPLOAD_LIMIT
+              value: {{ .Values.nextcloud.php.uploadLimit | quote }}
+            - name: TZ
+              value: {{ .Values.global.timezone | quote }}
+          volumeMounts:
+            - name: nextcloud-storage
+              mountPath: /var/www/html
+            - name: nextcloud-storage-nfs
+              mountPath: /mnt/data
+      volumes:
+        - name: nextcloud-storage
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-nextcloud-pvc
+        - name: nextcloud-storage-nfs
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-nextcloud-pvc-nfs
